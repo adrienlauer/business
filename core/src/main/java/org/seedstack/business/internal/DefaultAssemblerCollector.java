@@ -32,7 +32,7 @@ class DefaultAssemblerCollector {
      *
      * @param defaultAssemblersClasses the default assembler classes to bind
      */
-    public DefaultAssemblerCollector(Collection<Class<? extends Assembler>> defaultAssemblersClasses) {
+    DefaultAssemblerCollector(Collection<Class<? extends Assembler>> defaultAssemblersClasses) {
         this.defaultAssemblersClasses = defaultAssemblersClasses;
     }
 
@@ -43,7 +43,7 @@ class DefaultAssemblerCollector {
      * @param dtoClasses the DTO classes annotated by {@literal @}DtoOf
      * @return collection of default assembler binding strategies
      */
-    public Collection<BindingStrategy> collect(Collection<Class<?>> dtoClasses) {
+    Collection<BindingStrategy> collect(Collection<Class<?>> dtoClasses) {
         // Contains pairs of aggregateClass/dtoClass
         Set<Type[]> autoAssemblerGenerics = new HashSet<>();
         // Contains pairs of aggregateTuple/dtoClass
@@ -65,7 +65,7 @@ class DefaultAssemblerCollector {
         }
 
         Collection<BindingStrategy> bs = new ArrayList<>();
-        // Each pairs of aggregateClass/dtoClass or aggregateTuple/dtoClass is bind to all the default assemblers
+        // Each pairs of aggregateClass/dtoClass or aggregateTuple/dtoClass is bound to all the default assemblers
         for (Class<? extends Assembler> defaultAssemblersClass : defaultAssemblersClasses) {
             Class<?> aggregateType = TypeToken.of(defaultAssemblersClass)
                     .resolveType(defaultAssemblersClass.getTypeParameters()[0]).getRawType();

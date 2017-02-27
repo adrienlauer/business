@@ -32,12 +32,12 @@ class DefaultFactoryCollector {
     private final Collection<Class<?>> aggregateOrVOClasses;
     private final Multimap<Type, Class<?>> producibleClasses;
 
-    public DefaultFactoryCollector(Collection<Class<?>> aggregateOrVOClasses, Map<Key<?>, Class<?>> bindings) {
+    DefaultFactoryCollector(Collection<Class<?>> aggregateOrVOClasses, Map<Key<?>, Class<?>> bindings) {
         this.aggregateOrVOClasses = aggregateOrVOClasses;
         this.producibleClasses = filterProducibleClasses(bindings);
     }
 
-    public Collection<BindingStrategy> collect() {
+    Collection<BindingStrategy> collect() {
         Collection<BindingStrategy> strategies = new ArrayList<>();
         BindingStrategy aggregateBindings = buildAggregateDefaultFactoryBindings();
         if (aggregateBindings != null) {

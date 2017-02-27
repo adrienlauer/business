@@ -7,7 +7,6 @@
  */
 package org.seedstack.business.internal;
 
-import com.google.common.collect.Lists;
 import com.google.inject.Key;
 import io.nuun.kernel.api.plugin.InitState;
 import io.nuun.kernel.api.plugin.context.InitContext;
@@ -15,9 +14,11 @@ import io.nuun.kernel.api.plugin.request.ClasspathScanRequest;
 import io.nuun.kernel.api.plugin.request.ClasspathScanRequestBuilder;
 import org.kametic.specifications.Specification;
 import org.seedstack.business.assembler.Assembler;
+import org.seedstack.business.domain.AggregateRoot;
 import org.seedstack.business.domain.Factory;
+import org.seedstack.business.domain.GenericFactory;
 import org.seedstack.business.domain.Repository;
-import org.seedstack.seed.Application;
+import org.seedstack.business.domain.ValueObject;
 import org.seedstack.seed.core.internal.AbstractSeedPlugin;
 import org.seedstack.seed.core.internal.guice.BindingStrategy;
 import org.seedstack.seed.core.internal.guice.BindingUtils;
@@ -29,10 +30,10 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
-import static org.seedstack.business.internal.utils.BusinessUtils.convertClassCollection;
 import static org.seedstack.shed.reflect.ClassPredicates.classIs;
 import static org.seedstack.shed.reflect.ClassPredicates.classIsDescendantOf;
 import static org.seedstack.shed.reflect.ClassPredicates.classIsInterface;
@@ -49,24 +50,19 @@ import static org.seedstack.shed.reflect.ClassPredicates.classModifierIs;
  */
 public class BusinessPlugin extends AbstractSeedPlugin {
     private static final Logger LOGGER = LoggerFactory.getLogger(BusinessPlugin.class);
-
-    private Collection<Class<?>> aggregateClasses;
-    private Collection<Class<?>> valueObjectClasses;
-    private Collection<Class<?>> repositoriesInterfaces;
-    private Collection<Class<?>> domainFactoryInterfaces;
-    private Collection<Class<?>> serviceInterfaces;
-    private Collection<Class<?>> policyInterfaces;
-    private Collection<Class<?>> assemblersClasses;
-    private Collection<Class<?>> finderServiceInterfaces;
-
-    private Collection<Class<? extends Assembler>> defaultAssemblerClasses;
-    private Collection<Class<? extends Repository>> defaultRepositoryClasses;
-
-    private Map<Class<?>, Specification<Class<?>>> specsByInterfaceMap = new HashMap<>();
-    private Collection<BindingStrategy> bindingStrategies = new ArrayList<>();
-    private Map<Key<?>, Class<?>> bindings = new HashMap<>();
-
-    private Application application;
+    private final Map<Class<?>, Specification<Class<?>>> specsByInterfaceMap = new HashMap<>();
+    private final Collection<BindingStrategy> bindingStrategies = new ArrayList<>();
+    private final Map<Key<?>, Class<?>> bindings = new HashMap<>();
+    private final Collection<Class<? extends AggregateRoot>> aggregateClasses = new HashSet<>();
+    private final Collection<Class<? extends ValueObject>> valueObjectClasses = new HashSet<>();
+    private final Collection<Class<? extends Assembler>> assemblerClasses = new HashSet<>();
+    private final Collection<Class<? extends Repository>> repositoriesInterfaces = new HashSet<>();
+    private final Collection<Class<? extends GenericFactory>> domainFactoryInterfaces = new HashSet<>();
+    private final Collection<Class<?>> serviceInterfaces = new HashSet<>();
+    private final Collection<Class<?>> policyInterfaces = new HashSet<>();
+    private final Collection<Class<?>> finderInterfaces = new HashSet<>();
+    private final Collection<Class<? extends Assembler>> defaultAssemblerClasses = new HashSet<>();
+    private final Collection<Class<? extends Repository>> defaultRepositoryClasses = new HashSet<>();
 
     private static final Specification<Class<?>> FACTORY_SPEC = BusinessSpecifications.FACTORY.and(
             new SpecificationBuilder<>(classIs(Factory.class).negate()).build()
@@ -90,38 +86,33 @@ public class BusinessPlugin extends AbstractSeedPlugin {
                     .specification(BusinessSpecifications.POLICY)
                     .specification(BusinessSpecifications.REPOSITORY)
                     .specification(BusinessSpecifications.VALUE_OBJECT)
-
                     .specification(BusinessSpecifications.DEFAULT_ASSEMBLER)
                     .specification(BusinessSpecifications.DEFAULT_REPOSITORY)
                     .specification(BusinessSpecifications.DTO_OF).build();
         } else {
-            return classpathRequestForDescendantTypesOf(
-                    domainFactoryInterfaces,
-                    serviceInterfaces,
-                    finderServiceInterfaces,
-                    finderServiceInterfaces,
-                    policyInterfaces,
-                    repositoriesInterfaces).build();
+            ClasspathScanRequestBuilder classpathScanRequestBuilder = classpathScanRequestBuilder();
+            classpathRequestForDescendantTypesOf(classpathScanRequestBuilder, domainFactoryInterfaces);
+            classpathRequestForDescendantTypesOf(classpathScanRequestBuilder, serviceInterfaces);
+            classpathRequestForDescendantTypesOf(classpathScanRequestBuilder, finderInterfaces);
+            classpathRequestForDescendantTypesOf(classpathScanRequestBuilder, policyInterfaces);
+            classpathRequestForDescendantTypesOf(classpathScanRequestBuilder, repositoriesInterfaces);
+            return classpathScanRequestBuilder.build();
         }
     }
 
     /**
      * Builds a ClasspathScanRequest to find all the descendant of the given interfaces.
      *
-     * @param interfacesArgs the interfaces
+     * @param interfaces the interfaces
      */
     @SuppressWarnings("unchecked")
-    private ClasspathScanRequestBuilder classpathRequestForDescendantTypesOf(Collection<Class<?>>... interfacesArgs) {
-        ClasspathScanRequestBuilder classpathScanRequestBuilder = classpathScanRequestBuilder();
-        for (Collection<Class<?>> interfaces : interfacesArgs) {
-            for (Class<?> anInterface : interfaces) {
-                LOGGER.trace("Request implementations of: {}", anInterface.getName());
-                Specification<Class<?>> spec = new SpecificationBuilder<>(classIsDescendantOf(anInterface).and(classIsInterface().negate()).and(classModifierIs(Modifier.ABSTRACT).negate())).build();
-                classpathScanRequestBuilder = classpathScanRequestBuilder.specification(spec);
-                specsByInterfaceMap.put(anInterface, spec);
-            }
+    private <T extends Class<?>> void classpathRequestForDescendantTypesOf(ClasspathScanRequestBuilder classpathScanRequestBuilder, Collection<T> interfaces) {
+        for (Class<?> anInterface : interfaces) {
+            LOGGER.trace("Request implementations of: {}", anInterface.getName());
+            Specification<Class<?>> spec = new SpecificationBuilder<>(classIsDescendantOf(anInterface).and(classIsInterface().negate()).and(classModifierIs(Modifier.ABSTRACT).negate())).build();
+            classpathScanRequestBuilder = classpathScanRequestBuilder.specification(spec);
+            specsByInterfaceMap.put(anInterface, spec);
         }
-        return classpathScanRequestBuilder;
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -131,37 +122,35 @@ public class BusinessPlugin extends AbstractSeedPlugin {
 
         // The first round is used to scan interfaces
         if (round.isFirst()) {
-            application = getApplication();
-
-            aggregateClasses = spec.get(BusinessSpecifications.AGGREGATE_ROOT);
+            get(initContext, BusinessSpecifications.AGGREGATE_ROOT, AggregateRoot.class, aggregateClasses);
             LOGGER.debug("Aggregate root(s) => {}", aggregateClasses);
 
-            assemblersClasses = spec.get(BusinessSpecifications.CLASSIC_ASSEMBLER);
-            LOGGER.debug("Assembler class(es) => {}", assemblersClasses);
+            get(initContext, BusinessSpecifications.CLASSIC_ASSEMBLER, Assembler.class, assemblerClasses);
+            LOGGER.debug("Assembler class(es) => {}", assemblerClasses);
 
-            domainFactoryInterfaces = spec.get(FACTORY_SPEC);
+            get(initContext, FACTORY_SPEC, GenericFactory.class, domainFactoryInterfaces);
             LOGGER.debug("Factory Interface(s) => {}", domainFactoryInterfaces);
 
-            serviceInterfaces = spec.get(BusinessSpecifications.SERVICE);
+            get(initContext, BusinessSpecifications.SERVICE, Object.class, serviceInterfaces);
             LOGGER.debug("Domain Service Interface(s) => {}", serviceInterfaces);
 
-            finderServiceInterfaces = spec.get(BusinessSpecifications.FINDER);
-            LOGGER.debug("Finder Interface(s) => {}", finderServiceInterfaces);
+            get(initContext, BusinessSpecifications.FINDER, Object.class, finderInterfaces);
+            LOGGER.debug("Finder Interface(s) => {}", finderInterfaces);
 
-            policyInterfaces = spec.get(BusinessSpecifications.POLICY);
+            get(initContext, BusinessSpecifications.POLICY, Object.class, policyInterfaces);
             LOGGER.debug("Policy Interface(s) => {}", policyInterfaces);
 
-            repositoriesInterfaces = spec.get(BusinessSpecifications.REPOSITORY);
+            get(initContext, BusinessSpecifications.REPOSITORY, Repository.class, repositoriesInterfaces);
             LOGGER.debug("Repository Interface(s) => {}", repositoriesInterfaces);
 
-            valueObjectClasses = spec.get(BusinessSpecifications.VALUE_OBJECT);
+            get(initContext, BusinessSpecifications.VALUE_OBJECT, ValueObject.class, valueObjectClasses);
             LOGGER.debug("Value object(s) => {}", valueObjectClasses);
 
             // Default implementations
-            defaultRepositoryClasses = convertClassCollection(Repository.class, spec.get(BusinessSpecifications.DEFAULT_REPOSITORY));
+            get(initContext, BusinessSpecifications.DEFAULT_REPOSITORY, Repository.class, defaultRepositoryClasses);
             LOGGER.debug("Default repositories => {}", defaultRepositoryClasses);
 
-            defaultAssemblerClasses = convertClassCollection(Assembler.class, spec.get(BusinessSpecifications.DEFAULT_ASSEMBLER));
+            get(initContext, BusinessSpecifications.DEFAULT_ASSEMBLER, Assembler.class, defaultAssemblerClasses);
             LOGGER.debug("Default assembler(s) => {}", defaultAssemblerClasses);
 
             return InitState.NON_INITIALIZED;
@@ -174,21 +163,15 @@ public class BusinessPlugin extends AbstractSeedPlugin {
             assemblerClass.add(Assembler.class);
             specsByInterfaceMap.put(Assembler.class, BusinessSpecifications.CLASSIC_ASSEMBLER);
 
-            List<Collection<Class<?>>> collections = Lists.newArrayList(
-                    domainFactoryInterfaces,
-                    serviceInterfaces,
-                    finderServiceInterfaces,
-                    policyInterfaces,
-                    repositoriesInterfaces,
-                    assemblerClass
-            );
-            for (Collection<Class<?>> interfaces : collections) {
-                bindings.putAll(associatesInterfaceToImplementations(initContext, interfaces));
-            }
+            bindings.putAll(associatesInterfaceToImplementations(initContext, domainFactoryInterfaces));
+            bindings.putAll(associatesInterfaceToImplementations(initContext, serviceInterfaces));
+            bindings.putAll(associatesInterfaceToImplementations(initContext, finderInterfaces));
+            bindings.putAll(associatesInterfaceToImplementations(initContext, policyInterfaces));
+            bindings.putAll(associatesInterfaceToImplementations(initContext, repositoriesInterfaces));
+            bindings.putAll(associatesInterfaceToImplementations(initContext, assemblerClass));
 
             // Bindings for default repositories
-
-            bindingStrategies = new DefaultRepositoryCollector(aggregateClasses, defaultRepositoryClasses, application).collect();
+            bindingStrategies.addAll(new DefaultRepositoryCollector(aggregateClasses, defaultRepositoryClasses, getApplication()).collect());
 
             // Bindings for default factories
             Collection<Class<?>> aggregateOrVOClasses = new ArrayList<>();
@@ -204,9 +187,20 @@ public class BusinessPlugin extends AbstractSeedPlugin {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private <T> void get(InitContext initContext, Specification<Class<?>> spec, Class<T> baseClass, Collection<Class<? extends T>> collection) {
+        Map<Specification, Collection<Class<?>>> scannedTypesBySpecification = initContext.scannedTypesBySpecification();
+        scannedTypesBySpecification
+                .get(spec)
+                .stream()
+                .filter(baseClass::isAssignableFrom)
+                .map(c -> (Class<T>) c)
+                .forEach(collection::add);
+    }
+
     @Override
     public Object nativeUnitModule() {
-        return new BusinessModule(assemblersClasses, bindings, bindingStrategies);
+        return new BusinessModule(assemblerClasses, bindings, bindingStrategies);
     }
 
     /**
@@ -222,11 +216,11 @@ public class BusinessPlugin extends AbstractSeedPlugin {
      * @see BindingUtils#resolveBindingDefinitions(Class, Class, Class[])
      */
     @SuppressWarnings("unchecked")
-    private Map<Key<?>, Class<?>> associatesInterfaceToImplementations(InitContext initContext, Collection<Class<?>> interfaces) {
-        Map<Key<?>, Class<?>> keyMap = new HashMap<>();
+    private <T extends Class> Map<Key<T>, T> associatesInterfaceToImplementations(InitContext initContext, Collection<T> interfaces) {
+        Map<Key<T>, T> keyMap = new HashMap<>();
         for (Class<?> anInterface : interfaces) {
             Collection<Class<?>> subTypes = initContext.scannedTypesBySpecification().get(specsByInterfaceMap.get(anInterface));
-            keyMap.putAll(BindingUtils.resolveBindingDefinitions((Class<Object>) anInterface, subTypes));
+            keyMap.putAll(BindingUtils.resolveBindingDefinitions((T) anInterface, subTypes));
         }
         return keyMap;
     }
